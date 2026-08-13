@@ -1,6 +1,12 @@
 @import "tailwindcss";
 
 @font-face {
+  font-family: 'Jua';
+  src: url('/fonts/Jua-Regular.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+@font-face {
   font-family: 'Daruma Drop One';
   src: url('/fonts/DarumaDropOne-Regular.ttf') format('truetype');
   font-weight: normal;

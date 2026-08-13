@@ -159,7 +159,7 @@ export default function Feedback() {
 
   if (!hasSession) {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-8">
+      <div className="min-h-screen flex flex-col items-center justify-center p-8" style={{ background: 'linear-gradient(to bottom, #ddeeff, #e8f4fd)' }}>
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 max-w-lg w-full text-center space-y-4">
           <p className="text-gray-500">No session data found. Complete a conversation first!</p>
           <button
@@ -174,10 +174,10 @@ export default function Feedback() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen" style={{ background: 'linear-gradient(to bottom, #ddeeff, #e8f4fd)' }}>
       <header className="bg-white border-b border-gray-200 px-6 py-4">
-        <h1 className="text-xl font-semibold text-gray-800">Session Feedback</h1>
-        <p className="text-sm text-gray-500">{turnCount} turn{turnCount !== 1 ? 's' : ''} completed</p>
+        <h1 className="text-xl font-black" style={{ fontFamily: "'Daruma Drop One', cursive", color: '#2F4780' }}>Session Feedback</h1>
+        <p className="font-mono text-sm text-gray-500">{turnCount} turn{turnCount !== 1 ? 's' : ''} completed</p>
       </header>
 
       <div className="max-w-lg mx-auto px-6 py-6 space-y-6">
@@ -264,13 +264,15 @@ export default function Feedback() {
         <div className="flex gap-3 pb-8">
           <button
             onClick={() => navigate('/conversation')}
-            className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-medium hover:bg-indigo-700 transition-colors"
+            className="flex-1 text-white py-3 rounded-xl font-medium transition-colors"
+            style={{ backgroundColor: '#2F4780' }}
           >
             Practice Again
           </button>
           <button
-            onClick={() => navigate('/')}
-            className="flex-1 bg-white border border-gray-300 text-gray-700 py-3 rounded-xl font-medium hover:bg-gray-50 transition-colors"
+            onClick={() => navigate('/dashboard')}
+            className="flex-1 bg-white py-3 rounded-xl font-medium transition-colors border-2"
+            style={{ color: '#2F4780', borderColor: '#2F4780' }}
           >
             Home
           </button>
