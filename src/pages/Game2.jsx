@@ -1,9 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAuth } from '../contexts/AuthContext'
-import { supabase } from '../lib/supabase'
+import { speakWithJorge } from '../utils/tts'
 
-// ─── System prompt ──────────────────────────────────────────────────────────
+// ─── System prompt (vocabulary-constrained) ───────────────────────────────────
 
 const BASE_SYSTEM_PROMPT = `You are TooChatty, a warm and encouraging Spanish pronunciation coach for absolute beginners (Spanish levels 1–2). You run turn-based spoken conversations in Mexican Spanish to help learners practice the five Spanish vowel sounds: A, E, I, O, U — and the vowel+R combinations (AR, ER, IR, OR, UR).
 
@@ -21,13 +20,12 @@ TONE & PERSONA
 - Keep all spoken output SHORT. One to two sentences maximum per turn.
 - You always speak Spanish in the conversation, but give all coaching tips and feedback in English.
 
-SCOPE
-- All conversation topics must be appropriate for a Spanish 1–2 learner.
-  Allowed topics: greetings, introductions, family, food, colors, numbers, animals,
-  simple daily activities, weather, simple likes and dislikes, classroom objects.
-- Never introduce advanced grammar, subjunctive, complex verb conjugations, or topics
-  outside level 1–2 vocabulary.
-- Never discuss anything unrelated to language learning.
+VOCABULARY CONSTRAINT
+- This is a guided conversation using only vocabulary from beginner drill modules.
+- Allowed vocabulary topics: greetings, introductions, names, what you study or do, common
+  questions (time, bathroom, cost, repeating), food ordering, and transport/cab phrases.
+- Do NOT introduce vocabulary outside these four topic areas.
+- Sentence complexity must stay at A1–A2 level. Short phrases only.
 
 VOWEL REFERENCE (use this internally for all scoring and tips)
   A — mouth wide open, jaw dropped, tongue flat. Like "ah" in "father". Never like the English "ay".
@@ -43,23 +41,20 @@ MODE: CONVERSATION
 ────────────────────────────────────────
 
 You are the conversation partner. Your job is to ask simple, engaging Spanish questions
-that elicit responses rich in vowel sounds.
+that elicit responses rich in vowel sounds, staying within the four allowed topic areas.
 
 TURN STRUCTURE
 - Each of your turns = one short Spanish question or prompt.
 - This is turn number {{TURN_NUMBER}} of the conversation.
 - Turn 1: Always begin with a warm greeting and a simple self-introduction question.
   Example: "¡Hola! Soy TooChatty. ¿Cómo te llamas?"
-- Turns 2–5: Follow up naturally on the user's answer. Ask about one new topic per turn.
-- Turn 6+: Introduce a new allowed topic if the previous one is exhausted.
+- Turns 2+: Rotate through the allowed topic areas naturally.
 - Never repeat the same question twice in a session.
 
 QUESTION DESIGN RULES
 - Prefer questions whose likely answer words contain many A, E, I, O, U sounds.
-  Good: "¿Cuál es tu animal favorito?" (likely answers: gato, perro, pájaro — vowel-rich)
-  Good: "¿Qué comes en el desayuno?" (likely answers: huevo, fruta, cereal)
-  Avoid: questions with only yes/no answers.
 - Vary question types: some open-ended, some choice-based ("¿Prefieres X o Y?")
+- Good examples: "¿Qué comes en el desayuno?", "¿Cómo te llamas?", "¿Necesitas un taxi?"
 
 OUTPUT FORMAT (CONVERSATION MODE)
 Return a JSON object only. No prose outside the JSON.
@@ -68,7 +63,7 @@ Return a JSON object only. No prose outside the JSON.
   "spoken_prompt": "<your Spanish question, 1–2 sentences, spoken aloud to the user>",
   "display_prompt": "<same text, for on-screen display>",
   "topic": "<the topic this question covers, in English>",
-  "target_vowels": ["<list of vowel sounds this question is designed to elicit, e.g. 'A', 'O', 'U'>"]
+  "target_vowels": ["<list of vowel sounds this question is designed to elicit>"]
 }
 
 ────────────────────────────────────────
@@ -92,14 +87,11 @@ SCORING RULES
 - Analyze each word in the user's answer.
 - For each word, identify which vowels are present.
 - Score each vowel token as either CORRECT or NEEDS_WORK.
-  Mark CORRECT if: the transcription suggests the standard Spanish vowel was produced
-    (i.e., the word was transcribed correctly in Spanish or close to it).
+  Mark CORRECT if: the transcription suggests the standard Spanish vowel was produced.
   Mark NEEDS_WORK if: the transcription suggests an English vowel substitution,
     a dropped vowel, or the word was unrecognizable.
-- For every vowel marked NEEDS_WORK, provide a short English tip (1 sentence max)
-  drawn from the VOWEL REFERENCE above.
+- For every vowel marked NEEDS_WORK, provide a short English tip (1 sentence max).
 - Choose an encouragement_message that is specific — reference something they got right.
-  Never use generic praise like "Good job!" alone.
 
 OUTPUT FORMAT (FEEDBACK MODE)
 Return a JSON object only. No prose outside the JSON.
@@ -132,11 +124,11 @@ Transcript so far this session:
 
 (If TRANSCRIPT_SO_FAR is empty, this is the first turn.)`
 
-// ─── API helper ─────────────────────────────────────────────────────────────
+// ─── API helper ───────────────────────────────────────────────────────────────
 
 const API_KEY = import.meta.env.VITE_GROQ_API_KEY
 
-async function callClaude(mode, userMessage, turnNumber, transcriptSoFar) {
+async function callGroq(mode, userMessage, turnNumber, transcriptSoFar) {
   const systemPrompt = BASE_SYSTEM_PROMPT
     .replace('{{MODE}}', mode)
     .replace('{{TURN_NUMBER}}', String(turnNumber))
@@ -168,15 +160,13 @@ async function callClaude(mode, userMessage, turnNumber, transcriptSoFar) {
   return JSON.parse(raw)
 }
 
-// ─── Vowel highlighting ──────────────────────────────────────────────────────
+// ─── Vowel highlighting ───────────────────────────────────────────────────────
 
 const VOWEL_SET = new Set(['a', 'e', 'i', 'o', 'u'])
 
 function VowelWord({ word, vowels }) {
   const [openTip, setOpenTip] = useState(null)
 
-  // Walk the word left-to-right; consume feedback entries in order for each vowel hit.
-  // This means consonants are never touched regardless of what position the LLM returns.
   let vi = 0
   const chars = word.split('').map((char, i) => {
     if (VOWEL_SET.has(char.toLowerCase())) {
@@ -195,10 +185,7 @@ function VowelWord({ word, vowels }) {
         if (feedback?.status === 'needs_work')
           return (
             <span key={i} className="relative inline-block">
-              <span
-                className="text-red-500 font-bold cursor-pointer"
-                onClick={() => setOpenTip(openTip === i ? null : i)}
-              >
+              <span className="text-red-500 font-bold cursor-pointer" onClick={() => setOpenTip(openTip === i ? null : i)}>
                 {char}
               </span>
               {openTip === i && feedback.tip && (
@@ -215,26 +202,9 @@ function VowelWord({ word, vowels }) {
   )
 }
 
-// ─── TTS ────────────────────────────────────────────────────────────────────
+// ─── Main component ───────────────────────────────────────────────────────────
 
-function speakQuestion(text) {
-  window.speechSynthesis.cancel()
-  const utterance = new SpeechSynthesisUtterance(text)
-  utterance.lang = 'es-MX'
-  utterance.rate = 0.85
-  utterance.pitch = 1
-  const voices = window.speechSynthesis.getVoices()
-  const spanishVoice = voices.find(v => v.lang === 'es-MX')
-    || voices.find(v => v.lang.startsWith('es'))
-  if (spanishVoice) utterance.voice = spanishVoice
-  window.speechSynthesis.speak(utterance)
-  return utterance
-}
-
-// ─── Main component ──────────────────────────────────────────────────────────
-
-export default function Conversation() {
-  const { user } = useAuth()
+export default function Game2() {
   const [messages, setMessages] = useState([])
   const [isRecording, setIsRecording] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
@@ -252,19 +222,12 @@ export default function Conversation() {
   const bottomRef = useRef(null)
   const initialLoadDone = useRef(false)
 
-  const canvasRef = useRef(null)
-  const audioContextRef = useRef(null)
-  const analyserRef = useRef(null)
-  const animFrameRef = useRef(null)
-
-  // Load first question on mount — guard against StrictMode double-invoke
   useEffect(() => {
     if (initialLoadDone.current) return
     initialLoadDone.current = true
     loadNextQuestion()
   }, [])
 
-  // Auto-scroll to bottom on new messages
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isLoading])
@@ -272,32 +235,14 @@ export default function Conversation() {
   async function loadNextQuestion() {
     setIsLoading(true)
     try {
-      const parsed = await callClaude(
-        'CONVERSATION',
-        'Generate the next conversation prompt.',
-        turnNumberRef.current,
-        transcriptSoFarRef.current,
-      )
+      const parsed = await callGroq('CONVERSATION', 'Generate the next conversation prompt.', turnNumberRef.current, transcriptSoFarRef.current)
       lastQuestionRef.current = parsed.spoken_prompt
       setMessages(prev => [...prev, { type: 'ai-question', ...parsed }])
-
-      const doSpeak = () => {
-        setIsSpeaking(true)
-        const utterance = speakQuestion(parsed.spoken_prompt)
-        utterance.onend = () => setIsSpeaking(false)
-        utterance.onerror = () => setIsSpeaking(false)
-      }
-      const voices = window.speechSynthesis.getVoices()
-      if (voices.length > 0) {
-        doSpeak()
-      } else {
-        window.speechSynthesis.onvoiceschanged = () => {
-          window.speechSynthesis.onvoiceschanged = null
-          doSpeak()
-        }
-      }
+      setIsSpeaking(true)
+      await speakWithJorge(parsed.spoken_prompt)
+      setIsSpeaking(false)
     } catch (err) {
-      console.error('Failed to load question:', err)
+      setIsSpeaking(false)
       setMessages(prev => [...prev, { type: 'error', text: `Could not load question: ${err.message}` }])
     } finally {
       setIsLoading(false)
@@ -308,47 +253,32 @@ export default function Conversation() {
     setIsLoading(true)
     try {
       const userMessage = `Question asked: "${lastQuestionRef.current}"\nUser's transcribed answer: "${transcript}"`
-      const feedback = await callClaude(
-        'FEEDBACK',
-        userMessage,
-        turnNumberRef.current,
-        transcriptSoFarRef.current,
-      )
-
-      transcriptSoFarRef.current +=
-        `\nTurn ${turnNumberRef.current} — AI: "${lastQuestionRef.current}" | User: "${transcript}"`
+      const feedback = await callGroq('FEEDBACK', userMessage, turnNumberRef.current, transcriptSoFarRef.current)
+      transcriptSoFarRef.current += `\nTurn ${turnNumberRef.current} — AI: "${lastQuestionRef.current}" | User: "${transcript}"`
       turnNumberRef.current += 1
-
       setMessages(prev => [...prev, { type: 'feedback', userTranscript: transcript, ...feedback }])
     } catch (err) {
-      console.error('Failed to get feedback:', err)
       setMessages(prev => [...prev, { type: 'error', text: `Could not get feedback: ${err.message}` }])
     } finally {
       setIsLoading(false)
     }
   }
 
-  // ── Recording ──────────────────────────────────────────────────────────────
-
   async function startRecording() {
     setIsRecording(true)
     transcriptRef.current = ''
 
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (SpeechRecognition) {
-      const recognition = new SpeechRecognition()
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (SR) {
+      const recognition = new SR()
       recognition.continuous = true
       recognition.interimResults = false
       recognition.lang = 'es-MX'
       recognition.onresult = e => {
-        transcriptRef.current = Array.from(e.results)
-          .map(r => r[0].transcript)
-          .join(' ')
+        transcriptRef.current = Array.from(e.results).map(r => r[0].transcript).join(' ')
       }
       recognition.start()
       recognitionRef.current = recognition
-    } else {
-      console.warn('SpeechRecognition not supported in this browser.')
     }
 
     try {
@@ -356,62 +286,14 @@ export default function Conversation() {
       const recorder = new MediaRecorder(stream)
       recorder.start()
       mediaRecorderRef.current = { recorder, stream }
-
-      const audioCtx = new AudioContext()
-      const analyser = audioCtx.createAnalyser()
-      analyser.fftSize = 512
-      audioCtx.createMediaStreamSource(stream).connect(analyser)
-      audioContextRef.current = audioCtx
-      analyserRef.current = analyser
-      startWaveform()
     } catch (err) {
-      console.error('Microphone access denied:', err)
+      console.error('Mic access denied:', err)
     }
-  }
-
-  function startWaveform() {
-    const canvas = canvasRef.current
-    const analyser = analyserRef.current
-    if (!canvas || !analyser) return
-    const ctx = canvas.getContext('2d')
-    const bufferLength = analyser.frequencyBinCount
-    const dataArray = new Uint8Array(bufferLength)
-    const draw = () => {
-      animFrameRef.current = requestAnimationFrame(draw)
-      analyser.getByteTimeDomainData(dataArray)
-      ctx.clearRect(0, 0, canvas.width, canvas.height)
-      ctx.lineWidth = 2.5
-      ctx.strokeStyle = '#2F4780'
-      ctx.beginPath()
-      const sliceWidth = canvas.width / bufferLength
-      let x = 0
-      for (let i = 0; i < bufferLength; i++) {
-        const v = dataArray[i] / 128.0
-        const y = (v * canvas.height) / 2
-        if (i === 0) ctx.moveTo(x, y)
-        else ctx.lineTo(x, y)
-        x += sliceWidth
-      }
-      ctx.lineTo(canvas.width, canvas.height / 2)
-      ctx.stroke()
-    }
-    draw()
   }
 
   function stopRecording() {
     setIsRecording(false)
 
-    if (animFrameRef.current) {
-      cancelAnimationFrame(animFrameRef.current)
-      animFrameRef.current = null
-    }
-    if (audioContextRef.current) {
-      audioContextRef.current.close()
-      audioContextRef.current = null
-      analyserRef.current = null
-    }
-
-    // Stop MediaRecorder
     if (mediaRecorderRef.current) {
       const { recorder, stream } = mediaRecorderRef.current
       recorder.stop()
@@ -419,13 +301,11 @@ export default function Conversation() {
       mediaRecorderRef.current = null
     }
 
-    // Stop SpeechRecognition — onend fires after final results are collected
     if (recognitionRef.current) {
       const recognition = recognitionRef.current
       recognitionRef.current = null
       recognition.onend = () => {
         const transcript = transcriptRef.current.trim()
-        console.log('Transcript:', transcript)
         if (transcript) getFeedback(transcript)
       }
       recognition.stop()
@@ -434,7 +314,7 @@ export default function Conversation() {
 
   function handlePointerDown(e) {
     e.preventDefault()
-    if (!isRecording && !isLoading && !isSpeaking) startRecording()
+    if (!isRecording && !isLoading) startRecording()
   }
 
   function handlePointerUp(e) {
@@ -442,37 +322,30 @@ export default function Conversation() {
     if (isRecording) stopRecording()
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
-
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(to bottom, #ddeeff, #e8f4fd)' }}>
-      <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-        <h2 className="text-xl font-black" style={{ fontFamily: "'Daruma Drop One', cursive", color: '#2F4780' }}>Conversation</h2>
+    <div className="min-h-screen bg-white flex flex-col">
+      <header className="sticky top-0 z-10 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate('/conversation-select')}
+            className="text-gray-400 hover:text-gray-600 transition-colors"
+            aria-label="Back"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <div>
+            <h2 className="text-base font-black text-gray-900">Guided Conversation</h2>
+            <p className="text-xs text-indigo-500 font-medium">Practice phrases mode</p>
+          </div>
+        </div>
         <button
-          onClick={async () => {
+          onClick={() => {
             const feedbackResults = messages.filter(m => m.type === 'feedback')
-            console.log('Finish clicked, feedbackResults:', feedbackResults.length)
-            const { data: { user } } = await supabase.auth.getUser()
-            console.log('Saving session for user:', user?.id)
-            const totalCorrect = feedbackResults.reduce((sum, f) =>
-              sum + (f?.words?.flatMap(w => w.vowels).filter(v => v.status === 'correct').length || 0), 0)
-            const totalVowels = feedbackResults.reduce((sum, f) =>
-              sum + (f?.words?.flatMap(w => w.vowels).length || 0), 0)
-            console.log('Vowels correct:', totalCorrect, 'Total:', totalVowels)
-            const { error } = await supabase.from('sessions').insert({
-              user_id: user.id,
-              vowels_correct: totalCorrect,
-              vowels_total: totalVowels,
-              mode: 'conversation',
-            })
-            if (error) console.error('Session save error:', error)
-            else console.log('Session saved successfully!')
-            navigate('/feedback', {
-              state: { messages, feedbackResults, turnCount: turnNumberRef.current - 1 },
-            })
+            navigate('/feedback', { state: { messages, feedbackResults, turnCount: turnNumberRef.current - 1 } })
           }}
-          className="text-sm text-white px-4 py-2 rounded-xl font-semibold transition-colors"
-          style={{ backgroundColor: '#2F4780' }}
+          className="text-sm bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
         >
           Finish & Get Feedback
         </button>
@@ -498,12 +371,9 @@ export default function Conversation() {
           if (msg.type === 'feedback') {
             return (
               <div key={i} className="space-y-2">
-                {/* Encouragement banner */}
                 <div className="bg-yellow-50 border border-yellow-200 rounded-xl px-4 py-2">
                   <p className="text-yellow-800 text-sm">{msg.encouragement_message}</p>
                 </div>
-
-                {/* User response bubble — right-aligned with vowel highlighting */}
                 <div className="flex justify-end">
                   <div className="max-w-sm bg-white border border-gray-200 px-4 py-3 rounded-2xl shadow-sm">
                     <div className="flex flex-wrap gap-x-2 gap-y-1 text-base">
@@ -513,33 +383,15 @@ export default function Conversation() {
                     </div>
                   </div>
                 </div>
-
-                {/* Summary tip */}
                 {msg.summary_tip && (
                   <div className="flex justify-end">
                     <p className="text-xs text-gray-400 italic max-w-sm text-right">{msg.summary_tip}</p>
                   </div>
                 )}
-
-                {/* Next question button */}
                 <div className="flex">
-                  <button
-                    onClick={loadNextQuestion}
-                    disabled={isLoading}
-                    className="text-xs text-indigo-600 hover:text-indigo-800 underline disabled:opacity-40"
-                  >
+                  <button onClick={loadNextQuestion} disabled={isLoading} className="text-xs text-indigo-600 hover:text-indigo-800 underline disabled:opacity-40">
                     {isLoading ? 'Loading next question…' : 'Next question →'}
                   </button>
-                </div>
-              </div>
-            )
-          }
-
-          if (msg.type === 'user-text') {
-            return (
-              <div key={i} className="flex justify-end">
-                <div className="max-w-sm bg-indigo-600 text-white px-4 py-2 rounded-2xl text-sm">
-                  {msg.text}
                 </div>
               </div>
             )
@@ -556,12 +408,9 @@ export default function Conversation() {
           return null
         })}
 
-        {/* Loading indicator */}
         {isLoading && !isRecording && (
           <div className="flex">
-            <div className="bg-gray-100 px-4 py-3 rounded-2xl text-sm text-gray-400 animate-pulse">
-              Thinking…
-            </div>
+            <div className="bg-gray-100 px-4 py-3 rounded-2xl text-sm text-gray-400 animate-pulse">Thinking…</div>
           </div>
         )}
 
@@ -569,31 +418,17 @@ export default function Conversation() {
       </div>
 
       {/* Mic bar */}
-      <div className="bg-white border-t border-gray-200 py-6 flex flex-col items-center gap-3">
-        {isRecording && (
-          <canvas
-            ref={canvasRef}
-            width={280}
-            height={60}
-            className="rounded-xl"
-            style={{ background: 'rgba(47, 71, 128, 0.06)' }}
-          />
-        )}
+      <div className="border-t border-gray-200 py-6 flex flex-col items-center gap-3">
         <div className="relative">
-          {isRecording && (
-            <span className="absolute inset-0 rounded-full bg-red-400 animate-ping opacity-75 scale-125" />
-          )}
+          {isRecording && <span className="absolute inset-0 rounded-full bg-red-400 animate-ping opacity-75 scale-125" />}
           <button
             onPointerDown={handlePointerDown}
             onPointerUp={handlePointerUp}
             onPointerLeave={isRecording ? handlePointerUp : undefined}
             disabled={(isLoading && !isRecording) || isSpeaking}
             className={`relative w-20 h-20 rounded-full flex items-center justify-center transition-colors select-none touch-none shadow-md ${
-              isRecording
-                ? 'bg-red-600 text-white'
-                : 'bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40'
+              isRecording ? 'bg-red-600 text-white' : 'bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40'
             }`}
-            aria-label={isRecording ? 'Recording' : 'Hold to talk'}
           >
             {isLoading && !isRecording ? (
               <svg className="w-7 h-7 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -609,7 +444,7 @@ export default function Conversation() {
           </button>
         </div>
         <p className={`text-sm font-medium ${isRecording ? 'text-red-500' : isSpeaking ? 'text-indigo-500' : isLoading ? 'text-gray-400' : 'text-gray-500'}`}>
-          {isRecording ? 'Listening…' : isSpeaking ? 'Speaking…' : isLoading ? 'Processing…' : 'Hold to talk, release to send'}
+          {isRecording ? 'Listening…' : isSpeaking ? 'Jorge is speaking…' : isLoading ? 'Processing…' : 'Hold to talk, release to send'}
         </p>
       </div>
     </div>

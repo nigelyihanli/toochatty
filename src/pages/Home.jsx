@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom'
+import Footer from '../components/Footer'
 
 function ChalkButton({ children, onClick, rotate = 0, textTilt = -6 }) {
   return (
@@ -50,8 +51,8 @@ export default function Home() {
         </p>
 
         <div className="flex items-center flex-wrap justify-center gap-2">
-          <ChalkButton rotate={-1.5} textTilt={-7}>Sign Up</ChalkButton>
-          <ChalkButton rotate={1} textTilt={6} onClick={() => navigate('/dashboard')}>Log In</ChalkButton>
+          <ChalkButton rotate={-1.5} textTilt={-7} onClick={() => navigate('/signup')}>Sign Up</ChalkButton>
+          <ChalkButton rotate={1} textTilt={6} onClick={() => navigate('/login')}>Log In</ChalkButton>
           <ChalkButton rotate={-1} textTilt={-5}>Learn More</ChalkButton>
         </div>
       </div>
@@ -65,6 +66,7 @@ export default function Home() {
         />
       </div>
 
+      <Footer />
     </div>
   )
 }
