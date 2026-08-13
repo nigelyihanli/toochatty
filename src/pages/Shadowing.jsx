@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { supabase } from '../lib/supabase'
 
 // ─── Phrase bank (fallback) ───────────────────────────────────────────────────
 
@@ -239,6 +240,21 @@ export default function Shadowing() {
   async function loadPhrases() {
     setIsLoadingPhrases(true)
     try {
+      // Try teacher-edited phrases from Supabase first
+      const { data: contentData } = await supabase
+        .from('content')
+        .select('value')
+        .eq('key', `phrases_${moduleId}`)
+        .single()
+      if (contentData?.value) {
+        const dbPhrases = JSON.parse(contentData.value)
+        if (dbPhrases.length > 0) {
+          setPhrases(dbPhrases.slice(0, 10))
+          setIsLoadingPhrases(false)
+          return
+        }
+      }
+      // Fall back to Groq-generated phrases
       const generated = await generatePhrases(moduleId, moduleLabel)
       setPhrases(generated.slice(0, 10))
     } catch {

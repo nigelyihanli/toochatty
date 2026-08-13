@@ -10,7 +10,9 @@ import Feedback from './pages/Feedback'
 import Pretest from './pages/Pretest'
 import Login from './pages/Login'
 import SignUp from './pages/SignUp'
+import TeacherDashboard from './pages/TeacherDashboard'
 import ProtectedRoute from './components/ProtectedRoute'
+import ProtectedTeacherRoute from './components/ProtectedTeacherRoute'
 
 export default function App() {
   return (
@@ -21,7 +23,10 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<SignUp />} />
 
-        {/* Protected routes */}
+        {/* Teacher routes */}
+        <Route path="/teacher-dashboard" element={<ProtectedTeacherRoute><TeacherDashboard /></ProtectedTeacherRoute>} />
+
+        {/* Student routes */}
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/module-select" element={<ProtectedRoute><ModuleSelect /></ProtectedRoute>} />
         <Route path="/shadowing" element={<ProtectedRoute><Shadowing /></ProtectedRoute>} />

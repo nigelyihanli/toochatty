@@ -17,12 +17,13 @@ export default function Login() {
     e.preventDefault()
     setError(null)
     setLoading(true)
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     setLoading(false)
     if (error) {
       setError(error.message)
     } else {
-      navigate('/dashboard')
+      const { data: profile } = await supabase.from('profiles').select('role').eq('id', data.user.id).single()
+      navigate(profile?.role === 'teacher' ? '/teacher-dashboard' : '/dashboard')
     }
   }
 

@@ -1,5 +1,6 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { supabase } from '../lib/supabase'
 
 const PARAGRAPH = 'Me llamo Salome y tengo once años.\n' +
     '\n' +
@@ -137,12 +138,12 @@ function normalize(str) {
 }
 
 // Count how many paragraph words (in order) match the running transcript
-function countMatched(transcriptText) {
+function countMatched(transcriptText, paraWords) {
   const tWords = transcriptText.toLowerCase().split(/\s+/).filter(Boolean).map(normalize)
   let pIdx = 0
   let tIdx = 0
-  while (pIdx < PARA_WORDS.length && tIdx < tWords.length) {
-    if (normalize(PARA_WORDS[pIdx]) === tWords[tIdx]) pIdx++
+  while (pIdx < paraWords.length && tIdx < tWords.length) {
+    if (normalize(paraWords[pIdx]) === tWords[tIdx]) pIdx++
     tIdx++
   }
   return pIdx
@@ -193,6 +194,7 @@ function VowelWord({ word, vowels }) {
 
 export default function Pretest() {
   const navigate = useNavigate()
+  const [paragraph, setParagraph] = useState(PARAGRAPH)
   const [isRecording, setIsRecording] = useState(false)
   const [isGrading, setIsGrading] = useState(false)
   const [interimText, setInterimText] = useState('')
@@ -203,11 +205,22 @@ export default function Pretest() {
   const recognitionRef = useRef(null)
   const finalTranscriptRef = useRef('')
 
-  const matchedCount = isRecording ? countMatched(interimText) : 0
+  // Derived from paragraph state
+  const paraWords = paragraph.split(/\s+/)
+  const paraTokens = paragraph.split(/(\s+)/)
+
+  // Try loading teacher-edited paragraph from Supabase
+  useEffect(() => {
+    supabase.from('content').select('value').eq('key', 'pretest_paragraph').single()
+      .then(({ data }) => { if (data?.value) setParagraph(data.value) })
+      .catch(() => {})
+  }, [])
+
+  const matchedCount = isRecording ? countMatched(interimText, paraWords) : 0
 
   // Render paragraph with yellow highlighting on matched words
   let wordIdx = 0
-  const renderedParagraph = PARA_TOKENS.map((token, i) => {
+  const renderedParagraph = paraTokens.map((token, i) => {
     if (/^\s+$/.test(token)) return <span key={i}>{token}</span>
     const thisIdx = wordIdx++
     const highlighted = isRecording && thisIdx < matchedCount
