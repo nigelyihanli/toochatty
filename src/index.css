@@ -6,3 +6,38 @@
   font-weight: normal;
   font-style: normal;
 }
+
+.chalk-btn {
+  transform: rotate(var(--chalk-rotate, 0deg));
+}
+
+.chalk-btn .chalk-circle {
+  opacity: 0;
+  transform: scale(0.6);
+  transform-origin: center;
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.2s ease;
+}
+
+.chalk-btn:hover .chalk-circle {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.chalk-btn .chalk-circle path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  transition: stroke-dashoffset 0.35s ease-out;
+}
+
+.chalk-btn:hover .chalk-circle path {
+  stroke-dashoffset: 0;
+}
+
+.chalk-btn .chalk-text {
+  display: inline-block;
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.chalk-btn:hover .chalk-text {
+  transform: rotate(var(--chalk-text-tilt, -6deg)) scale(1.1);
+}

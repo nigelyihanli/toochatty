@@ -1,27 +1,40 @@
 import { useNavigate } from 'react-router-dom'
 
+function ChalkButton({ children, onClick, rotate = 0, textTilt = -6 }) {
+  return (
+    <button
+      onClick={onClick}
+      className="chalk-btn relative px-9 py-4"
+      style={{ '--chalk-rotate': `${rotate}deg`, '--chalk-text-tilt': `${textTilt}deg` }}
+    >
+      <svg
+        className="chalk-circle absolute inset-0 w-full h-full"
+        viewBox="0 0 100 40"
+        preserveAspectRatio="none"
+      >
+        <path
+          d="M 10,22 C 6,10 20,3 42,2 C 68,1 94,4 96,16 C 98,26 88,36 60,38 C 35,40 8,37 5,26 C 4,21 8,20 12,23"
+          fill="none"
+          stroke="#2F4780"
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
+      </svg>
+      <span
+        className="chalk-text relative text-xl md:text-2xl"
+        style={{ fontFamily: "'Daruma Drop One', cursive", color: '#2F4780' }}
+      >
+        {children}
+      </span>
+    </button>
+  )
+}
+
 export default function Home() {
   const navigate = useNavigate()
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(to bottom, #e0f2fe, #f0f9ff, #ddeeff, #e8f4fd)' }}>
-
-      {/* Nav */}
-      <nav className="relative z-10 flex justify-end items-center px-8 py-6 gap-3">
-        <button
-          onClick={() => navigate('/dashboard')}
-          className="px-5 py-2 text-sm font-medium border border-indigo-300 rounded-xl hover:bg-indigo-50 transition-all"
-          style={{ color: '#2F4780' }}
-        >
-          Log In
-        </button>
-        <button
-          className="px-5 py-2 text-sm font-bold text-white rounded-xl transition-colors"
-          style={{ backgroundColor: '#2F4780' }}
-        >
-          Sign Up
-        </button>
-      </nav>
 
       {/* Hero */}
       <div className="flex-1 flex flex-col items-center justify-center text-center px-8 pb-8">
@@ -36,12 +49,11 @@ export default function Home() {
           natural Spanish made easier through practice
         </p>
 
-        <button
-          className="px-9 py-3 text-sm font-semibold border-2 border-indigo-300 rounded-xl hover:border-indigo-500 hover:bg-indigo-50 transition-all duration-200"
-          style={{ color: '#2F4780' }}
-        >
-          Learn More
-        </button>
+        <div className="flex items-center flex-wrap justify-center gap-2">
+          <ChalkButton rotate={-1.5} textTilt={-7}>Sign Up</ChalkButton>
+          <ChalkButton rotate={1} textTilt={6} onClick={() => navigate('/dashboard')}>Log In</ChalkButton>
+          <ChalkButton rotate={-1} textTilt={-5}>Learn More</ChalkButton>
+        </div>
       </div>
 
       {/* GIF */}
