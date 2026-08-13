@@ -134,17 +134,27 @@ export default function Dashboard() {
   }, [user?.id])
 
   async function loadClasses() {
-    const { data } = await supabase
+    const { data: { user } } = await supabase.auth.getUser()
+
+    const { data: enrollments, error } = await supabase
       .from('enrollments')
-      .select('id, classes(id, name, code)')
+      .select(`
+        id,
+        joined_at,
+        class_id,
+        classes (
+          id,
+          class_name,
+          class_code
+        )
+      `)
       .eq('student_id', user.id)
-    if (data) {
-      setEnrolledClasses(data.map(e => ({
-        enrollmentId: e.id,
-        id: e.classes?.id,
-        name: e.classes?.name,
-        code: e.classes?.code,
-      })).filter(c => c.id))
+
+    console.log('Enrollments:', enrollments)
+    console.log('Error:', error)
+
+    if (enrollments) {
+      setEnrolledClasses(enrollments.map(e => e.classes).filter(Boolean))
     }
   }
 
@@ -189,22 +199,24 @@ export default function Dashboard() {
     if (error) {
       setJoinError('Could not join class. Please try again.')
     } else {
-      setJoinSuccess(`You joined ${classData.name}!`)
+      setJoinSuccess(`You joined ${classData.class_name}!`)
       setEnrolledClasses(prev => [...prev, {
-        enrollmentId: newEnrollment?.id,
         id: classData.id,
-        name: classData.name,
-        code: classData.code,
+        class_name: classData.class_name,
+        class_code: classData.class_code,
       }])
       setJoinCode('')
       setTimeout(() => setJoinOpen(false), 2000)
     }
   }
 
-  async function handleLeaveClass(enrollmentId) {
-    setLeavingId(enrollmentId)
-    await supabase.from('enrollments').delete().eq('id', enrollmentId)
-    setEnrolledClasses(prev => prev.filter(c => c.enrollmentId !== enrollmentId))
+  async function handleLeaveClass(classId) {
+    setLeavingId(classId)
+    const { data: { user } } = await supabase.auth.getUser()
+    await supabase.from('enrollments').delete()
+      .eq('class_id', classId)
+      .eq('student_id', user.id)
+    setEnrolledClasses(prev => prev.filter(c => c.id !== classId))
     setLeavingId(null)
   }
 
@@ -435,17 +447,17 @@ export default function Dashboard() {
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                   {enrolledClasses.map(cls => (
-                    <div key={cls.enrollmentId} className="bg-white border border-gray-200 rounded-2xl px-4 py-4 shadow-sm flex flex-col gap-2">
+                    <div key={cls.id} className="bg-white border border-gray-200 rounded-2xl px-4 py-4 shadow-sm flex flex-col gap-2">
                       <div>
-                        <p className="text-sm font-semibold text-gray-800" style={{ fontFamily: "'Jua', sans-serif" }}>{cls.name}</p>
-                        {cls.code && <p className="text-xs text-gray-400 font-mono mt-0.5 tracking-widest">{cls.code}</p>}
+                        <p className="text-sm font-semibold text-gray-800" style={{ fontFamily: "'Jua', sans-serif" }}>{cls.class_name}</p>
+                        {cls.class_code && <p className="text-xs text-gray-400 font-mono mt-0.5 tracking-widest">{cls.class_code}</p>}
                       </div>
                       <button
-                        onClick={() => handleLeaveClass(cls.enrollmentId)}
-                        disabled={leavingId === cls.enrollmentId}
+                        onClick={() => handleLeaveClass(cls.id)}
+                        disabled={leavingId === cls.id}
                         className="mt-auto text-xs font-semibold px-3 py-1.5 rounded-lg border border-red-200 text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors disabled:opacity-40 self-start"
                       >
-                        {leavingId === cls.enrollmentId ? 'Leaving…' : 'Leave Class'}
+                        {leavingId === cls.id ? 'Leaving…' : 'Leave Class'}
                       </button>
                     </div>
                   ))}
